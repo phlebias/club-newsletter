@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bridge Bot - Club Newsletter Generator</title>
+    <link rel="stylesheet" href="./styles/style.css">
+</head>
+
+<body>
+    <div class="container">
+        <header>
+            <h1>Bridge Bot 🤖</h1>
+            <p class="subtitle">Witty, insightful UK bridge commentary at your fingertips</p>
+        </header>
+
+        <main id="controls" class="glass-card">
+            <div class="admin-panel">
+                <button id="toggle-admin" class="secondary">Admin Override</button>
+
+                <div id="admin-form" class="form-group hide">
+                    <label for="session-date">Session Date</label>
+                    <input type="date" id="session-date">
+
+                    <label for="session-type">Session Type</label>
+                    <select id="session-type">
+                        <option value="">Any</option>
+                        <option value="Afternoon">Afternoon</option>
+                        <option value="Evening">Evening</option>
+                    </select>
+                </div>
+
+                <button id="generate-btn" class="primary">
+                    Generate Newsletter
+                </button>
+            </div>
+        </main>
+
+        <div id="loading" class="loader hide">
+            <div class="spinner"></div>
+            <p>Analyzing session data and generating witty commentary...</p>
+        </div>
+
+        <div id="output-container" class="hide">
+            <div class="actions">
+                <button id="copy-btn" class="secondary">Copy Content</button>
+                <button id="download-pbn-btn" class="secondary">Download PBN</button>
+                <button id="reset-btn" class="secondary">New Report</button>
+            </div>
+            <div class="glass-card">
+                <div id="newsletter-body" class="newsletter-content">
+                    <!-- Newsletter content will be injected here -->
+                </div>
+            </div>
+        </div>
+    </div>
+    <script type="module" src="./src/main.js"></script>
+</body>
+
+</html>
