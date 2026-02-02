@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "serve": "node server.js",
+    "serve": "node --watch server.js",
+    "automate": "node automate.js",
     "start": "concurrently \"npm run serve\" \"npm run dev\""
   },
   "keywords": [],

@@ -3,6 +3,14 @@ import fs from "fs";
 
 const CLUB_ID = "liverpool";
 
+export class NoResultsError extends Error {
+  constructor(message, eventInfo = null) {
+    super(message);
+    this.name = 'NoResultsError';
+    this.eventInfo = eventInfo;
+  }
+}
+
 /**
  * Scrapes BridgeWebs for session data and returns a structured object for newsletter generation.
  * @param {string} dateOverride - Optional YYYYMMDD string.
@@ -39,10 +47,21 @@ export async function getSessionData(dateOverride = null, sessionType = null) {
   try {
     console.log("Navigating to home page...");
 
-    await page.goto(
-      `https://www.bridgewebs.com/cgi-bin/bwor/bw.cgi?club=${CLUB_ID}&pid=display_home`,
-      { waitUntil: "domcontentloaded", timeout: 60000 },
-    );
+    let navSuccess = false;
+    for (let i = 0; i < 3; i++) {
+      try {
+        await page.goto(
+          `https://www.bridgewebs.com/cgi-bin/bwor/bw.cgi?club=${CLUB_ID}&pid=display_home`,
+          { waitUntil: "domcontentloaded", timeout: 60000 },
+        );
+        navSuccess = true;
+        break;
+      } catch (e) {
+        console.log(`Navigation attempt ${i + 1} failed: ${e.message}. Retrying...`);
+        if (i < 2) await new Promise(r => setTimeout(r, 3000));
+        else throw e;
+      }
+    }
     await debugDump("home_page");
     await new Promise((r) => setTimeout(r, 2000));
 
@@ -64,6 +83,7 @@ export async function getSessionData(dateOverride = null, sessionType = null) {
 
         // Look for rows with date and session information
         const rows = Array.from(resultsTable.querySelectorAll("tr"));
+        let lastDate = null;
 
         rows.forEach((row) => {
           const cells = Array.from(row.querySelectorAll("td"));
@@ -75,49 +95,68 @@ export async function getSessionData(dateOverride = null, sessionType = null) {
           const dateMatch = rowText.match(
             /(\d+)(?:st|nd|rd|th)?\s+(January|February|March|April|May|June|July|August|September|October|November|December)\s+(\d{4})/i,
           );
-          if (!dateMatch) return;
 
-          const day = dateMatch[1];
-          const monthName = dateMatch[2];
-          const year = dateMatch[3];
+          let dateStr = lastDate;
+          let isMonday = false;
 
-          // Convert month name to number
-          const monthNames = [
-            "january",
-            "february",
-            "march",
-            "april",
-            "may",
-            "june",
-            "july",
-            "august",
-            "september",
-            "october",
-            "november",
-            "december",
-          ];
-          const monthNum = (monthNames.indexOf(monthName.toLowerCase()) + 1)
-            .toString()
-            .padStart(2, "0");
-          const dayNum = day.padStart(2, "0");
-          const dateStr = `${year}${monthNum}${dayNum}`;
+          if (dateMatch) {
+            const day = dateMatch[1];
+            const monthName = dateMatch[2];
+            const year = dateMatch[3];
 
-          // Extract session type (Afternoon/Evening) - check for bold or strong text
-          let sessionType = null;
-          const boldText =
-            row.querySelector("strong")?.innerText ||
-            row.querySelector("b")?.innerText ||
-            "";
-          if (boldText.includes("Afternoon") || rowText.includes("Afternoon")) {
-            sessionType = "Afternoon";
-          } else if (
-            boldText.includes("Evening") ||
-            rowText.includes("Evening")
-          ) {
-            sessionType = "Evening";
+            // Convert month name to number
+            const monthNames = [
+              "january", "february", "march", "april", "may", "june",
+              "july", "august", "september", "october", "november", "december",
+            ];
+            const monthNum = (monthNames.indexOf(monthName.toLowerCase()) + 1)
+              .toString()
+              .padStart(2, "0");
+            const dayNum = day.padStart(2, "0");
+            dateStr = `${year}${monthNum}${dayNum}`;
+            lastDate = dateStr;
+
+            const dateObj = new Date(parseInt(year), parseInt(monthNum) - 1, parseInt(day));
+            isMonday = dateObj.getDay() === 1;
+          } else if (lastDate) {
+            // Check if this row is a "sticky" continuation row (common on BridgeWebs for multiple sessions)
+            // It should be close to the previous date row and contain links
+            const hasLinks = row.querySelector('a[href], [onclick]');
+            if (!hasLinks) return;
+
+            // Re-calculate isMonday for the sticky date
+            const year = lastDate.substring(0, 4);
+            const month = lastDate.substring(4, 6);
+            const day = lastDate.substring(6, 8);
+            const dateObj = new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
+            isMonday = dateObj.getDay() === 1;
           }
 
-          // Look for clickable links in this row - try clicking to get the actual event ID
+          if (!dateStr) return;
+
+          // Extract session type (Afternoon/Evening)
+          let sessionType = null;
+          const lowerText = rowText.toLowerCase();
+          if (lowerText.includes("afternoon") || lowerText.includes("aft")) {
+            sessionType = "Afternoon";
+          } else if (lowerText.includes("evening") || lowerText.includes("eve")) {
+            sessionType = "Evening";
+          } else {
+            // Heuristic labels
+            const boldText = (row.querySelector("strong")?.innerText || row.querySelector("b")?.innerText || "").toLowerCase();
+            if (boldText.includes("evening") || boldText.includes("eve")) sessionType = "Evening";
+            else if (boldText.includes("afternoon") || boldText.includes("aft")) sessionType = "Afternoon";
+          }
+
+          // RULE: Monday Afternoon is never analyzed
+          // On Monday, if it's not explicitly Evening, we treat it as Afternoon (or ambiguous) 
+          // and exclude it if we want to be safe.
+          if (isMonday && (sessionType === "Afternoon" || (sessionType === null && !lowerText.includes("evening")))) {
+            // console.log(`[Scraper] Ignoring likely Monday Afternoon session on ${dateStr}`);
+            return;
+          }
+
+          // Look for clickable links in this row
           const links = Array.from(row.querySelectorAll("a[href]"));
           let eventId = null;
           let eventLink = null;
@@ -154,7 +193,7 @@ export async function getSessionData(dateOverride = null, sessionType = null) {
             const clickable = row.querySelector("[onclick]");
             if (clickable) {
               const onclick = clickable.getAttribute("onclick") || "";
-              const eventMatch = onclick.match(/eventLink\('([^']+)'/);
+              const eventMatch = onclick.match(/eventLink\s*\(\s*'([^']+)'/);
               if (eventMatch) {
                 eventId = eventMatch[1];
               }
@@ -184,15 +223,15 @@ export async function getSessionData(dateOverride = null, sessionType = null) {
     }
     if (!events || events.length === 0) {
       await debugDump("no_events_found");
-      throw new Error(
-        "No events found on home page. See debug screenshots/HTML for details.",
+      throw new NoResultsError(
+        "No recently completed sessions found on the club home page.",
       );
     }
 
     console.log(`Found ${events.length} events on home page`);
 
     if (events.length === 0) {
-      throw new Error("No events found on home page");
+      throw new NoResultsError("No events found on home page");
     }
 
     // Select the appropriate event and click on it to get the actual event ID
@@ -216,8 +255,15 @@ export async function getSessionData(dateOverride = null, sessionType = null) {
       }
 
       if (!selectedEvent && matchingEvents.length > 0) {
-        selectedEvent = matchingEvents[0];
-        console.log(`Using first matching event: ${selectedEvent.text}`);
+        // Only fallback to first matching event if NO session type was requested
+        // If they asked for Evening and we only have Afternoon (for example),
+        // we should probably NOT just give them the Afternoon one.
+        if (!sessionType) {
+          selectedEvent = matchingEvents[0];
+          console.log(`Using first matching event: ${selectedEvent.text}`);
+        } else {
+          console.log(`No ${sessionType} session found for ${dateOverride}.`);
+        }
       }
     }
 
@@ -250,6 +296,7 @@ export async function getSessionData(dateOverride = null, sessionType = null) {
           const rows = Array.from(document.querySelectorAll("tr"));
           let currentMonth = null;
           let currentYear = null;
+          let lastDateStr = null;
 
           rows.forEach(row => {
             const text = row.innerText.trim();
@@ -263,13 +310,38 @@ export async function getSessionData(dateOverride = null, sessionType = null) {
             }
 
             // Check for date row like "22 Thu" or "22nd Jan"
-            // The row usually starts with the day number
             const dateMatch = text.match(/^(\d+)(?:st|nd|rd|th)?\s+(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun)?/i);
-            if (dateMatch && currentMonth && currentYear) {
-              const day = dateMatch[1].padStart(2, '0');
-              const monthNum = (monthNames.findIndex(m => m.toLowerCase() === currentMonth.toLowerCase()) + 1).toString().padStart(2, '0');
-              const dateStr = `${currentYear}${monthNum}${day}`;
 
+            let dateStr = lastDateStr;
+            let day = null;
+
+            if (dateMatch && currentMonth && currentYear) {
+              day = dateMatch[1].padStart(2, '0');
+              const monthNum = (monthNames.findIndex(m => m.toLowerCase() === currentMonth.toLowerCase()) + 1).toString().padStart(2, '0');
+              dateStr = `${currentYear}${monthNum}${day}`;
+              lastDateStr = dateStr;
+            } else if (lastDateStr) {
+              // Continuation row
+              dateStr = lastDateStr;
+              const year = dateStr.substring(0, 4);
+              const month = dateStr.substring(4, 6);
+              day = dateStr.substring(6, 8);
+            }
+
+            // Check if the row has an onclick with an event ID that contains the date
+            // e.g. eventLink('20260128_2',...)
+            const clickable = row.querySelector("[onclick]");
+            if (clickable) {
+              const onclick = clickable.getAttribute("onclick") || "";
+              const m = onclick.match(/eventLink\s*\(\s*'(\d{8})_\d+'/);
+              if (m) {
+                // This is a robust source of date: YYYYMMDD
+                dateStr = m[1];
+                lastDateStr = dateStr;
+              }
+            }
+
+            if (dateStr) {
               const clickable = row.querySelector("[onclick]");
               let eventId = null;
               let eventLink = null;
@@ -299,6 +371,20 @@ export async function getSessionData(dateOverride = null, sessionType = null) {
                     }
                   }
                 }
+              }
+
+              // Calculate day of week for archive filter
+              const monthNum = dateStr.substring(4, 6);
+              const yearNum = dateStr.substring(0, 4);
+              const dayNum = dateStr.substring(6, 8);
+              const dateObj = new Date(parseInt(yearNum), parseInt(monthNum) - 1, parseInt(dayNum));
+              const isMonday = dateObj.getDay() === 1;
+              const lowerText = text.toLowerCase();
+
+              // RULE: Monday Afternoon is banned
+              if (isMonday && (lowerText.includes("afternoon") || (!lowerText.includes("evening") && !lowerText.includes("eve")))) {
+                // Skip Monday Afternoon or ambiguous Monday sessions
+                return;
               }
 
               if (dateStr || eventId) {
@@ -367,24 +453,30 @@ export async function getSessionData(dateOverride = null, sessionType = null) {
           if (!resultsTable) return null;
 
           const rows = Array.from(resultsTable.querySelectorAll("tr"));
+          let lastDate = null;
+
           for (const row of rows) {
             const rowText = (row.innerText || row.textContent || "").trim();
             const dateMatch = rowText.match(
               /(\d+)(?:st|nd|rd|th)?\s+(January|February|March|April|May|June|July|August|September|October|November|December)\s+(\d{4})/i,
             );
-            if (!dateMatch) continue;
 
-            const day = dateMatch[1].padStart(2, "0");
-            const monthName = dateMatch[2];
-            const year = dateMatch[3];
-            const monthNames = [
-              "january", "february", "march", "april", "may", "june",
-              "july", "august", "september", "october", "november", "december"
-            ];
-            const monthNum = (monthNames.indexOf(monthName.toLowerCase()) + 1)
-              .toString()
-              .padStart(2, "0");
-            const dateStr = `${year}${monthNum}${day}`;
+            let dateStr = lastDate;
+
+            if (dateMatch) {
+              const day = dateMatch[1].padStart(2, "0");
+              const monthName = dateMatch[2];
+              const year = dateMatch[3];
+              const monthNames = [
+                "january", "february", "march", "april", "may", "june",
+                "july", "august", "september", "october", "november", "december"
+              ];
+              const monthNum = (monthNames.indexOf(monthName.toLowerCase()) + 1)
+                .toString()
+                .padStart(2, "0");
+              dateStr = `${year}${monthNum}${day}`;
+              lastDate = dateStr;
+            }
 
             if (dateStr === targetDate) {
               const sessionType = rowText.includes("Afternoon")
@@ -449,122 +541,7 @@ export async function getSessionData(dateOverride = null, sessionType = null) {
     await debugDump("rankings_page");
     await new Promise((r) => setTimeout(r, 1500));
 
-    let rankings = [];
-    try {
-      rankings = await page.evaluate(() => {
-        const rankings = [];
-        // Find all tables that look like result tables
-        const tables = Array.from(document.querySelectorAll("table"));
-
-        // Filter tables that are likely main results (not sidebars)
-        const potentialTables = tables.filter(t => {
-          const text = t.innerText || t.textContent || "";
-          const hasPlayers = text.includes("Players") || text.includes("Pair Names");
-          const hasScores = text.includes("Score") || text.includes("Match") || text.includes("%");
-
-          // Improved sidebar detection for BridgeWebs
-          const isSidebar = t.closest('#sidebar') || t.closest('.sidebar') ||
-            t.closest('.bwbox_main_left') || t.closest('#bwbox_main_left') ||
-            t.offsetWidth < 350;
-
-          // Prioritize tables in the main content area
-          const isMain = t.closest('#bwbox_main_right_box') || t.closest('#rbox') || t.closest('.results_main');
-
-          return hasPlayers && hasScores && (isMain || !isSidebar);
-        });
-
-        // Sort by row count descending, and prioritize tables in known main containers
-        potentialTables.sort((a, b) => {
-          const aMain = a.closest('#bwbox_main_right_box') || a.closest('#rbox') || a.closest('.results_main') ? 1 : 0;
-          const bMain = b.closest('#bwbox_main_right_box') || b.closest('#rbox') || b.closest('.results_main') ? 1 : 0;
-          if (aMain !== bMain) return bMain - aMain;
-          return b.rows.length - a.rows.length;
-        });
-
-        console.log(`Potential tables found: ${potentialTables.length}. Sorting by main-ness and row count.`);
-        potentialTables.forEach((t, i) => console.log(`Table ${i}: rows=${t.rows.length}, isMain=${!!(t.closest('#bwbox_main_right_box') || t.closest('#rbox') || t.closest('.results_main'))}`));
-
-        const activeTables = potentialTables.slice(0, 1);
-
-        activeTables.forEach((resultsTable, tIdx) => {
-          const rows = Array.from(resultsTable.querySelectorAll("tr"));
-          console.log(`[RANKING DEBUG] Table ${tIdx} has ${rows.length} rows`);
-          if (rows.length < 2) return;
-
-          // Detect column indices from the first row that has headers
-          let noCol = -1;
-          let playersCol = -1;
-          let posCol = -1;
-          let scoreCol = -1;
-
-          for (const row of rows) {
-            const cells = Array.from(row.querySelectorAll("td, th"));
-            const texts = cells.map(c => (c.innerText || "").trim().toLowerCase());
-
-            if (texts.some(t => t.includes("player") || t.includes("names"))) {
-              noCol = texts.findIndex(t => t === "no" || t === "pair" || t === "no.");
-              playersCol = texts.findIndex(t => t.includes("player") || t.includes("names"));
-              posCol = texts.findIndex(t => t.includes("pos") || t === "rank");
-              scoreCol = texts.findIndex(t => t.includes("score") || t.includes("%"));
-              break;
-            }
-          }
-
-          // Fallback if header not found clearly
-          if (playersCol === -1) playersCol = 2;
-          if (noCol === -1) noCol = 1;
-          if (posCol === -1) posCol = 0;
-          if (scoreCol === -1) scoreCol = 4;
-
-          console.log(`Ranking columns: pos=${posCol}, no=${noCol}, players=${playersCol}, score=${scoreCol}`);
-
-          rows.forEach(r => {
-            const cells = Array.from(r.querySelectorAll("td"));
-            if (cells.length < 4) {
-              // console.log(`[RANKING DEBUG] Skipping row with ${cells.length} cells`);
-              return;
-            }
-
-            const noText = (cells[noCol]?.innerText || "").trim();
-            // Pair number should at least contain a digit
-            if (!noText.match(/\d/)) return;
-
-            // Extract only the numeric part of the pair number for matching, but keep original for display if needed
-            const pairNo = noText.match(/(\d+)/)?.[1] || noText;
-
-            const players = (cells[playersCol]?.innerText || "").trim();
-            // console.log(`[RANKING DEBUG] Row: No=${pairNo}, Players=${players}`);
-            if (!players || players.toLowerCase().includes("players")) {
-              console.log(`[RANKING DEBUG] Skipping row: empty players or header repeat`);
-              return;
-            }
-
-            rankings.push({
-              pos: (cells[posCol]?.innerText || "").trim(),
-              no: pairNo,
-              fullNo: noText,
-              players: players,
-              score: (cells[scoreCol]?.innerText || "").trim(),
-              matchPoints: cells[3]?.innerText.trim() || "",
-            });
-          });
-        });
-
-        return rankings;
-      });
-    } catch (err) {
-      console.error("[DEBUG] Failed to extract rankings:", err);
-      await debugDump("extract_rankings_error");
-      throw err;
-    }
-    if (!rankings || rankings.length === 0) {
-      await debugDump("no_rankings_found");
-      throw new Error(
-        "No rankings found on rankings page. See debug screenshots/HTML for details.",
-      );
-    }
-
-    console.log(`Found ${rankings.length} pairs in rankings`);
+    // (Ranking extraction postponed to Step 3.5 after Classic Switch check)
 
     // 2.5. ENSURE CLASSIC EDITION & TABS
     console.log("=== Proceeding with detailed data extraction ===");
@@ -580,6 +557,8 @@ export async function getSessionData(dateOverride = null, sessionType = null) {
 
     // Step 3: Check if we need to switch to classic edition (top right button)
     console.log("Step 3: Checking for classic edition switch...");
+    await new Promise(r => setTimeout(r, 2000)); // Wait for stability
+
     const classicSwitchResult = await page.evaluate(() => {
       // Look for a button in the top right that might switch to classic view
       const buttons = Array.from(document.querySelectorAll('button, a, input[type="button"], span, div'));
@@ -589,11 +568,16 @@ export async function getSessionData(dateOverride = null, sessionType = null) {
         const text = (btn.innerText || btn.value || "").toLowerCase();
 
         // Button should be in top right area (top 150px, right 300px)
+        // Button should be in top right area (top 150px, right 300px)
         if (rect.top < 150 && rect.right > window.innerWidth - 300) {
-          if (text.includes("classic") || text.includes("switch") ||
-            text.includes("edition") || text === "switch to classic") {
-            btn.click();
-            return { success: true, text: btn.innerText || btn.value };
+          if ((text.includes("classic") && text.includes("switch")) ||
+            text === "classic edition" ||
+            text === "switch to classic") {
+            // Verify it doesn't say "Switch to 2022" (which means we are already in classic)
+            if (!text.includes("2022") && !text.includes("modern")) {
+              btn.click();
+              return { success: true, text: btn.innerText || btn.value };
+            }
           }
         }
       }
@@ -622,8 +606,147 @@ export async function getSessionData(dateOverride = null, sessionType = null) {
         .catch(() => { });
       await debugDump("after_classic_switch");
       await new Promise((r) => setTimeout(r, 2000));
+    }
+    // Move ranking extraction here, AFTER ensuring Classic Edition
+    console.log("Step 3.5: Extracting rankings (post-Classic check)...");
+
+    let rankings = [];
+    try {
+      rankings = await page.evaluate(() => {
+        const rankings = [];
+        // Find all tables that look like result tables
+        const tables = Array.from(document.querySelectorAll("table"));
+
+        // Filter tables that are likely main results (not sidebars)
+        const potentialTables = tables.filter((t, index) => {
+          const text = (t.innerText || t.textContent || "");
+          const rows = Array.from(t.rows);
+
+          // CRITICAL: Exclude control/options tables
+          if (text.includes("Results Options") || text.includes("Switch to") || text.includes("Print Rows") || text.includes("Show Names in Travellers")) {
+            // console.log(`[TABLE DEBUG] Table ${index} REJECTED: Control/Options table`);
+            return false;
+          }
+
+          if (rows.length < 3) {
+            // console.log(`[TABLE DEBUG] Table ${index} REJECTED: Not enough rows (${rows.length})`);
+            return false;
+          }
+
+          // Check for header row
+          const headerRow = rows.slice(0, 3).find(r => {
+            const html = r.innerHTML.toLowerCase();
+            return (html.includes("pos") || html.includes("rank")) &&
+              (html.includes("player") || html.includes("names") || html.includes("pair")) &&
+              (html.includes("score") || html.includes("%"));
+          });
+
+          if (!headerRow) {
+            // console.log(`[TABLE DEBUG] Table ${index} REJECTED: No valid header row found.`);
+            return false;
+          }
+
+          console.log(`[TABLE DEBUG] Table ${index} ACCEPTED: Rows=${rows.length}`);
+          return true;
+        });
+
+        // Sort by row count descending
+        potentialTables.sort((a, b) => b.rows.length - a.rows.length);
+
+        console.log(`Potential ranking tables found (strict): ${potentialTables.length}`);
+
+        // Allow up to 2 tables to cover Mitchell movements (NS and EW)
+        const activeTables = potentialTables.slice(0, 2);
+
+        activeTables.forEach((resultsTable, tIdx) => {
+          // Identify section/direction if possible (e.g. "North/South" header above table)
+          let direction = "";
+          const prevElement = resultsTable.previousElementSibling;
+          if (prevElement && (prevElement.innerText.includes("North") || prevElement.innerText.includes("NS"))) direction = "NS";
+          else if (prevElement && (prevElement.innerText.includes("East") || prevElement.innerText.includes("EW"))) direction = "EW";
+
+          const rows = Array.from(resultsTable.querySelectorAll("tr"));
+          console.log(`[RANKING DEBUG] Table ${tIdx} (${direction}) has ${rows.length} rows`);
+          if (rows.length < 2) return;
+
+          // Detect column indices from the first row that has headers
+          let noCol = -1;
+          let playersCol = -1;
+          let posCol = -1;
+          let scoreCol = -1;
+
+          let currentDirection = direction || (activeTables.length > 2 ? "Combined" : (activeTables.length === 2 ? (tIdx === 0 ? "NS" : "EW") : "Combined"));
+
+          // Pre-scan for headers to set columns
+          for (const row of rows) {
+            const cells = Array.from(row.querySelectorAll("td, th"));
+            const texts = cells.map(c => (c.innerText || "").trim().toLowerCase());
+
+            if (texts.some(t => t.includes("player") || t.includes("names"))) {
+              if (noCol === -1) {
+                noCol = texts.findIndex(t => t === "no" || t === "pair" || t === "no.");
+                playersCol = texts.findIndex(t => t.includes("player") || t.includes("names"));
+                posCol = texts.findIndex(t => t.includes("pos") || t === "rank");
+                scoreCol = texts.findIndex(t => t.includes("score") || t.includes("%"));
+              }
+            }
+          }
+
+          // Fallback if header not found clearly
+          if (playersCol === -1) playersCol = 2;
+          if (noCol === -1) noCol = 1;
+          if (posCol === -1) posCol = 0;
+          if (scoreCol === -1) scoreCol = 4;
+
+          rows.forEach((r, rIdx) => {
+            const rowText = (r.innerText || "").trim().toLowerCase();
+
+            // Check for in-table section headers (e.g. "North / South")
+            if (rowText.includes("north") && rowText.includes("south")) {
+              currentDirection = "NS";
+              return; // Skip header row
+            }
+            if (rowText.includes("east") && rowText.includes("west") && rowText.length < 50) {
+              currentDirection = "EW";
+              return; // Skip header row
+            }
+
+            const cells = Array.from(r.querySelectorAll("td"));
+            if (cells.length < 4) return;
+
+            const noText = (cells[noCol]?.innerText || "").trim();
+            if (!noText.match(/\d/)) return;
+            const pairNo = noText.match(/(\d+)/)?.[1] || noText;
+            const players = (cells[playersCol]?.innerText || "").trim();
+            if (!players || players.toLowerCase().includes("players")) return;
+
+            rankings.push({
+              pos: (cells[posCol]?.innerText || "").trim(),
+              no: pairNo,
+              fullNo: noText,
+              players: players,
+              score: (cells[scoreCol]?.innerText || "").trim(),
+              matchPoints: cells[3]?.innerText.trim() || "",
+              direction: currentDirection,
+
+            });
+          });
+        });
+
+        return rankings;
+      });
+    } catch (err) {
+      console.error("[DEBUG] Failed to extract rankings:", err);
+      await debugDump("extract_rankings_error");
+      throw err;
+    }
+    if (!rankings || rankings.length === 0) {
+      // It's possible we are on a page that doesn't show rankings directly?
+      // But we will proceed to Travellers which is the main source anyway.
+      // However, we need player names map.
+      console.log("Warning: No rankings found in Step 3.5.");
     } else {
-      console.log("No classic edition switch found (may already be in classic mode)");
+      console.log(`Found ${rankings.length} pairs in rankings (Step 3.5)`);
     }
 
     // Step 4: Access the Travellers tab FIRST (MAIN SOURCE FOR COMPREHENSIVE DATA)
@@ -1199,7 +1322,7 @@ export async function getSessionData(dateOverride = null, sessionType = null) {
           const locTks = headers.findIndex(h => h === 'tks' || h === 'tricks');
           const locNS = headers.findIndex(h => h === 'ns' || h.includes('n/s'));
           const locEW = headers.findIndex(h => h === 'ew' || h.includes('e/w'));
-          const locPlusSc = headers.findIndex(h => h === '+sc' || h === '+ sc' || h.includes('ns score'));
+          const locPlusSc = headers.findIndex(h => h === '+sc' || h === '+ sc' || h.includes('ns score') || h === 'score');
           const locMinusSc = headers.findIndex(h => h === '-sc' || h === '- sc' || h.includes('ew score'));
 
           if (locBid >= 0 && locNS >= 0 && locEW >= 0) {
@@ -1215,11 +1338,25 @@ export async function getSessionData(dateOverride = null, sessionType = null) {
               // A valid result row MUST have numeric pair identifiers
               if (!nsText.match(/^\d+$/) || !ewText.match(/^\d+$/)) continue;
 
-              const contract = getCellText(rCells[locBid]);
+              let contract = getCellText(rCells[locBid]);
               // A valid bridge contract MUST start with 1-7 or P (for pass)
-              if (!contract || !contract.match(/^([1-7][A-Z0-9*x]+|PASS)/i)) {
-                // Skip if it's just a number or known garbage
-                if (!contract || contract.match(/^\d+$/) || contract.length > 20) continue;
+              // We'll normalize it below, but first check if it looks like a contract
+              const isContract = contract && (contract.match(/^[1-7]/) || /PASS/i.test(contract));
+              if (!isContract) continue;
+
+              // Clean contract string: remove suit symbols and normalize
+              // Handle "6S", "6 S", "6S x", "6 spades", etc.
+              let normalizedContract = contract.toUpperCase()
+                .replace(/♠/g, 'S').replace(/♥/g, 'H').replace(/♦/g, 'D').replace(/♣/g, 'C')
+                .replace(/SPADES?/g, 'S').replace(/HEARTS?/g, 'H').replace(/DIAMONDS?/g, 'D').replace(/CLUBS?/g, 'C')
+                .replace(/NO TRUMPS?/g, 'NT')
+                .replace(/\s+/g, '');
+
+              const contractMatch = normalizedContract.match(/([1-7])(NT|[SHDC])([X*]{0,2})/i);
+              if (contractMatch) {
+                normalizedContract = contractMatch[1] + contractMatch[2] + contractMatch[3];
+              } else if (/PASS/i.test(normalizedContract)) {
+                normalizedContract = "PASS";
               }
 
               const declarer = locBy >= 0 ? getCellText(rCells[locBy]) : '';
@@ -1236,7 +1373,7 @@ export async function getSessionData(dateOverride = null, sessionType = null) {
                 boardsMap[currentBoardNum].push({
                   boardNum: currentBoardNum,
                   board: currentBoardNum,
-                  contract: contract,
+                  contract: normalizedContract,
                   declarer: declarer,
                   lead: lead,
                   tricks: tricks,

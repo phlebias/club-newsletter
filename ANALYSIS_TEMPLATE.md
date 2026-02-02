@@ -119,9 +119,11 @@ Only if you have board-by-board breakdown:
 
 #### Section 3: Notable Pattern - OPTIONAL
 Only if data clearly shows:
-- Unusual contract distribution
-- Persistent defense/declarer play issue
-- HCP bias impact
+- Unusual contract distribution or efficiency
+- Overtricks vs penalties trends
+- Game reach rate across the field
+- Directional scoring bias (e.g. valid bias vs just bad play)
+- Consistency vs Isolated Swings driving the result
 
 ### Closing (1-2 sentences)
 Brief factual summary, no congratulations unless tied to specific achievement.
