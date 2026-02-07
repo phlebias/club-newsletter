@@ -18,7 +18,7 @@ export class NoResultsError extends Error {
  */
 export async function getSessionData(dateOverride = null, sessionType = null) {
   const browser = await puppeteer.launch({
-    headless: false, // Set to false for visual debugging
+    headless: process.env.HEADLESS === 'true' ? "new" : false, // flexible headless mode
     args: ["--no-sandbox", "--disable-setuid-sandbox"],
   });
   const page = await browser.newPage();
@@ -268,17 +268,21 @@ export async function getSessionData(dateOverride = null, sessionType = null) {
     }
 
     // Default: latest completed session
-    if (!selectedEvent) {
+    if (!selectedEvent && !dateOverride) {
       selectedEvent = events[0];
     }
 
-    if (!selectedEvent) {
+    if (!selectedEvent && !dateOverride) {
       throw new Error("Could not select an event");
     }
 
-    console.log(
-      `Selected Event: ${selectedEvent.text} (${selectedEvent.eventId})`,
-    );
+    if (selectedEvent) {
+      console.log(
+        `Selected Event: ${selectedEvent.text} (${selectedEvent.eventId})`,
+      );
+    } else {
+      console.log(`Event not found on home page for date ${dateOverride || 'latest'}. Checking archive...`);
+    }
 
     // If we're using fallback date and didn't find a real Event ID yet,
     // or if we're in admin mode and the event might be older,
@@ -430,6 +434,10 @@ export async function getSessionData(dateOverride = null, sessionType = null) {
       } else {
         console.log(`Date ${dateOverride} still not found in archive.`);
       }
+    }
+
+    if (!selectedEvent && dateOverride) {
+      throw new NoResultsError(`Could not find event for date ${dateOverride} in current or past results.`);
     }
 
     // Click on the event row to navigate to it and get the actual event ID
@@ -1599,6 +1607,8 @@ export async function getSessionData(dateOverride = null, sessionType = null) {
         const dealString = dealMatch ? dealMatch[2] : "";
         const dealer = dealerMatch ? dealerMatch[1] : "";
         const vuln = vulnMatch ? vulnMatch[1] : "";
+        const ddTricksMatch = block.match(/\[DoubleDummyTricks "([^"]+)"\]/);
+        const optimumScoreMatch = block.match(/\[OptimumScore "([^"]+)"\]/); // e.g. "NS 100"
 
         // Parse deal string to calculate HCP
         // Format: N:KQJ... ... ... ...
@@ -1613,19 +1623,23 @@ export async function getSessionData(dateOverride = null, sessionType = null) {
           handsByPosition[pos] = handStr; // Just store string for now
         });
 
-        const nsHCP =
-          calculateHCP(handsByPosition["N"] || "") +
-          calculateHCP(handsByPosition["S"] || "");
-        const ewHCP =
-          calculateHCP(handsByPosition["E"] || "") +
-          calculateHCP(handsByPosition["W"] || "");
+        const nScore = calculateHCP(handsByPosition["N"] || "");
+        const sScore = calculateHCP(handsByPosition["S"] || "");
+        const eScore = calculateHCP(handsByPosition["E"] || "");
+        const wScore = calculateHCP(handsByPosition["W"] || "");
 
         handDiagrams[boardNum] = {
           deal: dealString,
           dealer: dealer,
           vuln: vuln,
-          nsHCP: nsHCP,
-          ewHCP: ewHCP,
+          nsHCP: nScore + sScore,
+          ewHCP: eScore + wScore,
+          nHCP: nScore,
+          sHCP: sScore,
+          eHCP: eScore,
+          wHCP: wScore,
+          ddTricks: ddTricksMatch ? ddTricksMatch[1] : null,
+          optimumScore: optimumScoreMatch ? optimumScoreMatch[1] : null
         };
       }
     }
@@ -1638,8 +1652,14 @@ export async function getSessionData(dateOverride = null, sessionType = null) {
         hands: handDiagrams[b.boardNum]?.deal || "",
         dealer: handDiagrams[b.boardNum]?.dealer || "",
         vuln: handDiagrams[b.boardNum]?.vuln || "",
-        nsHCP: handDiagrams[b.boardNum]?.nsHCP || 0,
-        ewHCP: handDiagrams[b.boardNum]?.ewHCP || 0,
+        nsHCP: handDiagrams[b.boardNum]?.nsHCP,
+        ewHCP: handDiagrams[b.boardNum]?.ewHCP,
+        nHCP: handDiagrams[b.boardNum]?.nHCP,
+        sHCP: handDiagrams[b.boardNum]?.sHCP,
+        eHCP: handDiagrams[b.boardNum]?.eHCP,
+        wHCP: handDiagrams[b.boardNum]?.wHCP,
+        ddTricks: handDiagrams[b.boardNum]?.ddTricks,
+        optimumScore: handDiagrams[b.boardNum]?.optimumScore,
         results: b.results,
       }));
     } else {

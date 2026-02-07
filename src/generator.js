@@ -1,4 +1,6 @@
 
+import { analyzeKillerLeads, analyzeEfficiency } from './analysis.js';
+
 /**
  * Generates a bridge club newsletter report following strict analytical discipline.
  * Role: UK bridge analyst.
@@ -86,18 +88,33 @@ export function generateNewsletter(data) {
     }
 
     // Analyze winning pattern for top pair (primary winner)
-    let topPairPositives = 0, topPairTotal = 0, topPairLargeGains = 0;
+    let topPairPositives = 0, topPairTotal = 0;
+    const largeGainBoards = [];
+
     boards.forEach(b => {
         const result = b.results.find(r => r.ns === topPair.no || r.ew === topPair.no);
         if (result) {
             topPairTotal++;
-            const score = parseInt(result.nsScore) || -parseInt(result.ewScore) || 0;
-            const avg = b.results.reduce((acc, r) => acc + (parseInt(r.nsScore) || -parseInt(r.ewScore) || 0), 0) / b.results.length;
-            if (score > avg) topPairPositives++;
-            if (Math.abs(score - avg) > 150) topPairLargeGains++;
+            // Determine pair's score directionally
+            const isNS = result.ns === topPair.no;
+            const rawNSScore = parseInt(result.nsScore) || -parseInt(result.ewScore) || 0;
+            const pairScore = isNS ? rawNSScore : -rawNSScore;
+
+            // Calculate field average directionally
+            const fieldSum = b.results.reduce((acc, r) => {
+                const s = parseInt(r.nsScore) || -parseInt(r.ewScore) || 0;
+                return acc + (isNS ? s : -s);
+            }, 0);
+            const fieldAvg = fieldSum / b.results.length;
+
+            if (pairScore > fieldAvg) topPairPositives++;
+            if ((pairScore - fieldAvg) > 200) largeGainBoards.push(b.boardNum);
         }
     });
-    const winningPattern = topPairLargeGains > topPairTotal * 0.2 ? "secured by several large swings" : "gained through small amounts on multiple boards";
+
+    const winningPattern = largeGainBoards.length >= 3
+        ? `secured by several large swings (notably Boards ${largeGainBoards.slice(0, 3).join(', ')})`
+        : `gained through consistent small margins (bettering the field on ${topPairPositives} of ${topPairTotal} boards)`;
 
     // --- SECTION GENERATION ---
 
@@ -189,13 +206,23 @@ export function generateNewsletter(data) {
 
     // Auction Heroes
     let heroPair = "", heroBoard = "", heroDetails = "";
-    const slamBoard = boardAnalysis.find(b => b.results.some(r => r.contract && (r.contract.includes('6') || r.contract.includes('7')) && (parseInt(r.nsScore) > 500 || parseInt(r.ewScore) > 500)));
+    const slamBoard = boardAnalysis.find(b => b.results.some(r =>
+        r.contract &&
+        (r.contract.includes('6') || r.contract.includes('7')) &&
+        parseInt(r.tricks) >= (parseInt(r.contract[0]) + 6)
+    ));
     if (slamBoard) {
-        const slamResult = slamBoard.results.find(r => r.contract && (r.contract.includes('6') || r.contract.includes('7')) && (parseInt(r.nsScore) > 500 || parseInt(r.ewScore) > 500));
+        const slamResult = slamBoard.results.find(r =>
+            r.contract &&
+            (r.contract.includes('6') || r.contract.includes('7')) &&
+            parseInt(r.tricks) >= (parseInt(r.contract[0]) + 6)
+        );
         heroPair = ['N', 'S'].includes(slamResult.declarer) ? (pairNames[slamResult.ns] || `Pair ${slamResult.ns}`) : (pairNames[slamResult.ew] || `Pair ${slamResult.ew}`);
         heroBoard = slamBoard.boardNum;
         const fieldContracts = [...new Set(slamBoard.results.map(r => r.contract))].filter(c => c && !c.includes('6') && !c.includes('7'));
-        heroDetails = `On Board ${heroBoard}, ${heroPair} advanced to ${formatSuit(slamResult.contract)} for ${slamResult.score}. While most other pairs stopped in ${fieldContracts.length > 0 ? formatSuit(fieldContracts[0]) : 'game'}, the slam was technically reachable with ${slamBoard.nsHCP}/${slamBoard.ewHCP} combined HCP. This decision produced a gain of ${slamBoard.spread} points over the field.`;
+        const declarerSide = ['N', 'S'].includes(slamResult.declarer) ? 'NS' : 'EW';
+        const relevantHCP = declarerSide === 'NS' ? slamBoard.nsHCP : slamBoard.ewHCP;
+        heroDetails = `On Board ${heroBoard}, ${heroPair} advanced to ${formatSuit(slamResult.contract)} for ${slamResult.score}. While most other pairs stopped in ${fieldContracts.length > 0 ? formatSuit(fieldContracts[0]) : 'game'}, they bid this slam with ${relevantHCP} combined HCP. This decision produced a gain of ${slamBoard.spread} points over the field.`;
     } else {
         const diffBoard = boardAnalysis.find(b => {
             const r = b.results.find(res => res.ns === topPair.no || res.ew === topPair.no);
@@ -216,7 +243,8 @@ export function generateNewsletter(data) {
         playBoard = overtrickBoard.boardNum;
         const seat = r.declarer === 'N' ? 'North' : r.declarer === 'S' ? 'South' : r.declarer === 'E' ? 'East' : 'West';
         playPairLabel = `${pName} / Table ${playBoard} ${seat}`;
-        playDetails = `In ${formatSuit(r.contract)}, declarer secured an overtrick that other tables missed. Preserving suit entries allowed a loser to be discarded, resulting in ${r.score} compared with the common ${overtrickBoard.results.find(res => res.contract === r.contract && res.tricks < r.tricks)?.score || 'lower scores'}.`;
+        // FIXED: Removed hallucinatory explanation about entries/discards. Sticking to factual score comparison.
+        playDetails = `In ${formatSuit(r.contract)}, declarer secured an overtrick that other tables missed. This extra trick improved the score to ${r.score}, differing from the ${overtrickBoard.results.find(res => res.contract === r.contract && res.tricks < r.tricks)?.score || 'standard'} achieved by the field.`;
     } else {
         const defBoard = boardAnalysis.find(b => b.results.some(r => parseInt(r.nsScore) < 0 && parseInt(r.ewScore) < 0));
         playBoard = defBoard?.boardNum || "12";
@@ -225,14 +253,343 @@ export function generateNewsletter(data) {
     }
 
     // Club Pulse
-    const significantBias = Math.abs(parseFloat(avgNSHCP) - parseFloat(avgEWHCP)) > 1.5;
-    const pulseText = `North/South held an average of ${avgNSHCP} HCP compared with ${avgEWHCP} for East/West. ${significantBias ? `This ${Math.abs(parseFloat(avgNSHCP) - parseFloat(avgEWHCP)).toFixed(1)}-point bias determined the bidding on Board ${boardAnalysis[1].boardNum}, where raw strength allowed North/South to outstay the opposition.` : 'The balanced distribution meant results were determined more by contract choice and defence than raw strength.'}`;
+    // Club Pulse
+    const nVal = parseFloat(avgNSHCP);
+    const eVal = parseFloat(avgEWHCP);
+    const diff = Math.abs(nVal - eVal);
+    const significantBias = diff > 1.5;
+    const favoredSide = nVal > eVal ? "North/South" : "East/West";
+
+    const pulseText = `North/South held an average of ${avgNSHCP} HCP compared with ${avgEWHCP} for East/West. ${significantBias ? `This ${diff.toFixed(1)}-point difference favored ${favoredSide}, providing them with a consistent structural advantage.` : 'The balanced distribution meant results were determined more by contract choice and defence than raw strength.'}`;
+
+    // Contract Choice Analysis
+    let contractChoiceText = "";
+    const splitBoard = boardAnalysis.find(b => {
+        const counts = {};
+        b.results.forEach(r => { if (r.contract) counts[r.contract] = (counts[r.contract] || 0) + 1; });
+        // Check if at least 2 contracts have >= 2 tables
+        return Object.values(counts).filter(c => c >= 2).length >= 2;
+    });
+
+    if (splitBoard) {
+        const counts = {};
+        splitBoard.results.forEach(r => { if (r.contract) counts[r.contract] = (counts[r.contract] || 0) + 1; });
+        const popularContracts = Object.keys(counts).filter(c => counts[c] >= 2).sort((a, b) => counts[b] - counts[a]);
+        const c1 = popularContracts[0];
+        const c2 = popularContracts[1];
+
+        const getResAndVariance = (c) => {
+            const rs = splitBoard.results.filter(r => r.contract === c);
+            if (!rs.length) return { best: null, varies: false };
+
+            // Find best result
+            const best = rs.reduce((currBest, curr) => {
+                const getScore = (r) => {
+                    const sc = parseInt(r.nsScore) || -parseInt(r.ewScore) || 0;
+                    return ['N', 'S'].includes(r.declarer) ? sc : -sc;
+                };
+                return getScore(curr) > getScore(currBest) ? curr : currBest;
+            }, rs[0]);
+
+            // Check if scores vary
+            const scores = new Set(rs.map(r => parseInt(r.nsScore) || -parseInt(r.ewScore) || 0));
+            return { best, varies: scores.size > 1 };
+        };
+
+        const formatRes = (r) => {
+            if (!r) return "?";
+            const s = parseInt(r.nsScore) || -parseInt(r.ewScore) || 0;
+            const decl = r.declarer || '?';
+            const level = parseInt(r.contract[0]) || 0;
+            const tricks = parseInt(r.tricks) || 0;
+            const diff = tricks - (level + 6);
+            let outcome = diff >= 0 ? `making` : `down ${Math.abs(diff)}`;
+            return `${s > 0 ? '+' + s : s} (${decl} ${outcome})`;
+        };
+
+        const r1Data = getResAndVariance(c1);
+        const r2Data = getResAndVariance(c2);
+
+        const formatResWithPrefix = (data) => {
+            if (!data.best) return "?";
+            const scoreText = formatRes(data.best);
+            return data.varies ? `up to ${scoreText}` : scoreText;
+        };
+
+        contractChoiceText = `Board ${splitBoard.boardNum} split the field. Multiple pairs chose ${formatSuit(c1)} scoring ${formatResWithPrefix(r1Data)}, while others preferred ${formatSuit(c2)} scoring ${formatResWithPrefix(r2Data)}. This purely auction-based decision created a swing distinct from play or defense.`;
+    } else {
+        const varBoard = boardAnalysis.find(b => b.uniqueContracts.length >= 2 && b.spread > 0);
+        if (varBoard) {
+            contractChoiceText = `Board ${varBoard.boardNum} saw varied evaluations, with contracts including ${varBoard.uniqueContracts.slice(0, 3).map(formatSuit).join(', ')} producing different outcomes.`;
+        } else {
+            contractChoiceText = "The field was largely consistent in contract choices this session.";
+        }
+    }
+
+    // High Card Point Allocation
+    let hcpAllocationText = "HCP data not available.";
+    if (validHCPBoards > 0) {
+        const playerStats = [];
+
+        rankings.forEach(pair => {
+            if (!pair.no || !pair.players) return;
+            const names = pair.players.split('&').map(n => n.trim());
+            // Handle " - " separator as well
+            const pNames = names.length === 1 && names[0].includes('-') ? names[0].split('-').map(n => n.trim()) : names;
+
+            if (pNames.length < 2) return;
+
+            let p1Sum = 0, p2Sum = 0, count = 0;
+
+            boards.forEach(b => {
+                // Ensure board has HCP data
+                if (b.nHCP === undefined) return;
+
+                const res = b.results.find(r => r.ns === pair.no || r.ew === pair.no);
+                if (res) {
+                    count++;
+                    if (res.ns === pair.no) {
+                        p1Sum += (b.nHCP || 0);
+                        p2Sum += (b.sHCP || 0);
+                    } else {
+                        p1Sum += (b.eHCP || 0);
+                        p2Sum += (b.wHCP || 0);
+                    }
+                }
+            });
+
+            if (count > 0) {
+                // Store incomplete stats - missing seat info will be filled later
+                playerStats.push({ name: pNames[0], avg: (p1Sum / count).toFixed(1), pairNo: pair.no, playerIdx: 0 });
+                playerStats.push({ name: pNames[1], avg: (p2Sum / count).toFixed(1), pairNo: pair.no, playerIdx: 1 });
+            }
+        });
+
+        // ROBUSTNESS: Infer Direction from Boards if not present in Rankings
+        const pairDirectionMap = {};
+        boards.forEach(b => {
+            b.results.forEach(r => {
+                const ns = r.ns;
+                const ew = r.ew;
+                if (!pairDirectionMap[ns]) pairDirectionMap[ns] = { ns: 0, ew: 0 };
+                if (!pairDirectionMap[ew]) pairDirectionMap[ew] = { ns: 0, ew: 0 };
+                pairDirectionMap[ns].ns++;
+                pairDirectionMap[ew].ew++;
+            });
+        });
+
+        // Determine likely direction for each pair (threshold 55% to handle arrow switches)
+        const fixedNSCount = [];
+        const fixedEWCount = [];
+
+        Object.keys(pairDirectionMap).forEach(pNo => {
+            const d = pairDirectionMap[pNo];
+            const total = d.ns + d.ew;
+            if (total === 0) return;
+
+            let inferredDir = 'Mixed';
+            // Aggressive classification: If > 55% in one direction, classify them as that direction for Stats
+            if (d.ns / total > 0.55) { inferredDir = 'NS'; fixedNSCount.push(pNo); }
+            else if (d.ew / total > 0.55) { inferredDir = 'EW'; fixedEWCount.push(pNo); }
+
+            pairDirectionMap[pNo].finalDir = inferredDir;
+        });
+
+        // Re-evaluate Mitchell status based on INFERRED directions
+        // If we have distinct groups, treat as directional for HCP stats
+        const isMitchell = fixedNSCount.length >= 2 && fixedEWCount.length >= 2;
+
+        if (isMitchell) {
+            // Fill seeds based on inferred direction
+            playerStats.forEach(p => {
+                let pDir = pairDirectionMap[p.pairNo]?.finalDir;
+
+                // Fallback for purely 50/50 split (rare) - assign to NS default
+                if (pDir === 'Mixed') {
+                    const d = pairDirectionMap[p.pairNo];
+                    pDir = d?.ns >= d?.ew ? 'NS' : 'EW';
+                }
+
+                if (pDir === 'NS') {
+                    p.seat = p.playerIdx === 0 ? 'North' : 'South';
+                } else if (pDir === 'EW') {
+                    p.seat = p.playerIdx === 0 ? 'East' : 'West';
+                }
+            });
+        }
+
+        if (isMitchell) {
+            // Group by Seat calculation
+            const seats = ['North', 'South', 'East', 'West'];
+            const summaries = [];
+
+            seats.forEach(seat => {
+                const players = playerStats.filter(p => p.seat === seat);
+                if (players.length > 0) {
+                    const avg = players.reduce((sum, p) => sum + parseFloat(p.avg), 0) / players.length;
+                    if (avg >= 11.0) {
+                        summaries.push({ seat, avg, type: 'good' });
+                    } else if (avg <= 9.0) {
+                        summaries.push({ seat, avg, type: 'bad' });
+                    }
+                }
+            });
+
+            if (summaries.length === 0) {
+                hcpAllocationText = "The cards were evenly distributed across all directions, with no seat holding a significant structural advantage.";
+            } else {
+                // Exposure Analysis for Mitchell
+                // Calculate Opportunity Index for NS vs EW
+                let nsOpportunity = { game: 0, partScore: 0, slam: 0 };
+                let ewOpportunity = { game: 0, partScore: 0, slam: 0 };
+                let varianceCount = 0;
+
+                boards.forEach(b => {
+                    const totalHCP = (parseInt(b.nsHCP) || 0) + (parseInt(b.ewHCP) || 0); // Should be 40, check mainly for valid data
+                    if (totalHCP < 35) return; // Skip if bad data
+
+                    // Analyze Board Potential - Simplified Heuristic
+                    // High Variance: >1400 swing or weird distribution? Use spread.
+                    if (b.spread > 800) varianceCount++;
+
+                    // Who had the "Opportunity"?
+                    // Assume side with > 24HCP had the "Game" opportunity
+                    // Side with > 31HCP had "Slam" opportunity
+                    const nsH = parseInt(b.nsHCP || 0);
+                    const ewH = parseInt(b.ewHCP || 0);
+
+                    if (nsH >= 31) nsOpportunity.slam++;
+                    else if (nsH >= 24) nsOpportunity.game++;
+                    else nsOpportunity.partScore++;
+
+                    if (ewH >= 31) ewOpportunity.slam++;
+                    else if (ewH >= 24) ewOpportunity.game++;
+                    else ewOpportunity.partScore++;
+                });
+
+                // --- Mitchell Analysis ---
+                const totalBoards = boards.length;
+                const highVariance = varianceCount;
+                const totalSlams = nsOpportunity.slam + ewOpportunity.slam; // Sum of opportunities, not distinct boards, but good proxy
+                const totalGames = nsOpportunity.game + ewOpportunity.game;
+
+                const ceilingType = totalSlams > 2 ? 'marked by high scoring potential' : totalGames > (totalBoards * 0.4) ? 'marked by frequent scoring opportunities' : 'limited in scoring potential';
+                const dominance = highVariance < 3 ? 'part-score dominated' : 'high-variance';
+
+                let mitchellText = `In this Mitchell movement, the session was ${ceilingType}, featuring ${totalSlams > 0 ? totalSlams + ' slam opportunities' : 'no slam opportunities'} and ${totalGames} game boards. `;
+
+                mitchellText += `North/South faced ${nsOpportunity.game + nsOpportunity.slam} game/slam opportunities while East/West had ${ewOpportunity.game + ewOpportunity.slam}, `;
+                const diff = (nsOpportunity.game + nsOpportunity.slam) - (ewOpportunity.game + ewOpportunity.slam);
+                if (Math.abs(diff) < 2) {
+                    mitchellText += `so exposure to high-value boards was evenly balanced. `;
+                } else if (diff > 0) {
+                    mitchellText += `so North/South were exposed to more of the session’s high-value boards. `;
+                } else {
+                    mitchellText += `so East/West were exposed to more of the session’s high-value boards. `;
+                }
+
+                mitchellText += `Most boards were ${dominance}, indicating that results relied on ${dominance === 'part-score dominated' ? 'accurate partial contracts and defense rather than High Card Points' : 'handling significant swings'}. `;
+                mitchellText += `Ranking differences were largely driven by ${dominance === 'part-score dominated' ? 'performance on the minority of high-scoring boards' : 'outcomes on these high-variance deals'}.`;
+
+                hcpAllocationText = mitchellText;
+            }
+        } else {
+            // --- Howell / One-Winner Analysis (Start Position Focus) ---
+            // "Restrict analysis to starting direction or seat and early-session exposure only"
+
+            // 1. Map Boards to Potential
+            const boardOpp = {};
+            const sortedBoards = boards.sort((a, b) => parseInt(a.boardNum) - parseInt(b.boardNum));
+            let totalSlams = 0;
+            let totalGames = 0;
+
+            sortedBoards.forEach(b => {
+                const nsH = parseInt(b.nsHCP || 0);
+                const ewH = parseInt(b.ewHCP || 0);
+                let type = 'PartScore';
+                if (Math.max(nsH, ewH) >= 31) { type = 'Slam'; totalSlams++; }
+                else if (Math.max(nsH, ewH) >= 24) { type = 'Game'; totalGames++; }
+                else if (b.spread > 800) { type = 'HighVar'; } // Treat high variance as notable
+                boardOpp[b.boardNum] = type;
+            });
+
+            // 2. Identify Start Positions for every pair
+            const pairStarts = {};
+            sortedBoards.forEach(b => {
+                b.results.forEach(r => {
+                    const bNum = parseInt(b.boardNum);
+                    if (!pairStarts[r.ns] || pairStarts[r.ns].board > bNum) {
+                        pairStarts[r.ns] = { board: bNum, dir: 'NS', pair: r.ns };
+                    }
+                    if (!pairStarts[r.ew] || pairStarts[r.ew].board > bNum) {
+                        pairStarts[r.ew] = { board: bNum, dir: 'EW', pair: r.ew };
+                    }
+                });
+            });
+
+            // 3. Analyze Early Exposure (First round / 3-4 boards)
+            const exposure = [];
+            const roundLength = 4; // Typical round length assumption or just "Early Session"
+            const boardCount = sortedBoards.length;
+
+            Object.values(pairStarts).forEach(start => {
+                let oppScore = 0;
+                let desc = [];
+                for (let i = 0; i < roundLength; i++) {
+                    let targetBd = (start.board - 1 + i) % boardCount + 1;
+                    const type = boardOpp[targetBd] || 'PartScore';
+                    if (type === 'Slam') { oppScore += 3; desc.push('Slam'); }
+                    else if (type === 'Game') { oppScore += 2; desc.push('Game'); }
+                    else if (type === 'HighVar') { oppScore += 1; }
+                }
+                exposure.push({ ...start, score: oppScore, desc });
+            });
+
+            exposure.sort((a, b) => b.score - a.score);
+            const hotStart = exposure[0];
+            const coldStart = exposure[exposure.length - 1];
+
+            const getNames = (pNo) => (pairNames[String(pNo)] || pairNames[parseInt(pNo)] || `Pair ${pNo}`).split('&')[0].trim();
+
+            let howellText = `In this Howell movement, individual exposure varied by starting seat. `;
+
+            if (hotStart && hotStart.score > 3) {
+                howellText += `Pairs starting at Board ${hotStart.board} (e.g. ${getNames(hotStart.pair)}) faced an action-packed opening set, meeting ${hotStart.desc.includes('Slam') ? 'slam' : 'game'} opportunities immediately. `;
+            } else {
+                howellText += `The opening boards were largely quiet across the room. `;
+            }
+
+            if (coldStart && coldStart.score < 2 && coldStart !== hotStart) {
+                howellText += `In contrast, those starting at Board ${coldStart.board} began with technical part-score battles. `;
+            }
+
+            const ceiling = totalSlams > 2 ? 'high-ceiling' : 'low-ceiling';
+            howellText += `Overall, the session was ${ceiling} with ${totalSlams} potential slams and ${totalGames} game hands. `;
+            howellText += `Your final result depended less on "good cards" and more on whether you met the opportunity-rich boards when your system was firing.`;
+
+            hcpAllocationText = howellText;
+        }
+    }
 
     // --- FINAL RENDER ---
 
     return `
         <div style="font-family: 'Inter', system-ui, sans-serif; color: #f1f5f9; line-height: 1.6; max-width: 900px; margin: 0 auto; padding: 40px 20px; background: #0f172a;">
             <div style="border-left: 4px solid #fbbf24; padding-left: 24px; margin-bottom: 40px;">
+                <div style="margin-bottom: 20px;">
+                    <button onclick="this.closest('details').removeAttribute('open')" style="
+                        background-color: transparent;
+                        border: 1px solid #fbbf24;
+                        color: #fbbf24;
+                        padding: 8px 16px;
+                        border-radius: 4px;
+                        cursor: pointer;
+                        font-family: inherit;
+                        font-size: 0.9rem;
+                    ">
+                        &larr; Back / Close Report
+                    </button>
+                </div>
                 <h1 style="font-size: 2.5rem; font-weight: 900; margin: 0; color: #fff;">${eventInfo.text.split('\n')[0]}</h1>
 
             </div>
@@ -242,6 +599,13 @@ export function generateNewsletter(data) {
                 <p style="font-size: 1.15rem; color: #cbd5e1;">
                     ${winnersText} <br>
                     <span style="display:block; margin-top:8px; font-size: 1rem; color:#94a3b8;">(Winning margin analysis: ${winningPattern})</span>
+                </p>
+            </div>
+
+            <div style="margin-bottom: 32px;">
+                <h2 style="color: #fbbf24; font-size: 1.5rem; border-bottom: 1px solid #334155; padding-bottom: 8px;">Did you have the cards?</h2>
+                <p style="font-size: 1.15rem; color: #cbd5e1;">
+                    ${hcpAllocationText}
                 </p>
             </div>
 
@@ -259,6 +623,85 @@ export function generateNewsletter(data) {
                 </p>
             </div>
 
+            <!-- NEW ANALYSIS SECTIONS -->
+            ${(() => {
+            // Killer Leads Analysis
+            let killerHtml = '';
+            const allKiller = boards.flatMap(b => analyzeKillerLeads(b));
+            // Filter for significant swings (e.g. making vs down)
+            const notableKiller = allKiller.filter(k => k.type === 'Defense' || k.type === 'Declarer').slice(0, 3);
+
+            if (notableKiller.length > 0) {
+                const items = notableKiller.map(k => {
+                    const declSide = ['N', 'S'].includes(k.declarer) ? 'NS' : 'EW';
+                    const declPair = declSide === 'NS' ? k.nsPair : k.ewPair;
+                    const defPair = declSide === 'NS' ? k.ewPair : k.nsPair;
+
+                    // Who is the "Hero"?
+                    // If type is Defense, the Defenders are the heroes.
+                    // If type is Declarer, the Declarer is the hero.
+                    const heroPairNum = k.type === 'Defense' ? defPair : declPair;
+                    const heroName = (pairNames[heroPairNum] || `Pair ${heroPairNum}`).split('&')[0].trim();
+
+                    return `
+                        <div style="margin-bottom: 12px;">
+                            <strong>Board ${k.boardNum}: ${k.contract} by ${k.declarer}</strong> (${k.result})<br>
+                            <span style="color: #fbbf24;">${heroName}</span> ${k.type === 'Defense' ? 'found the killer defense' : 'beat the odds'}: ${k.desc} (Lead: ${k.lead || 'Unknown'})
+                        </div>
+                    `;
+                }).join('');
+
+                killerHtml = `
+                    <div style="margin-bottom: 32px;">
+                        <h2 style="color: #fbbf24; font-size: 1.5rem; border-bottom: 1px solid #334155; padding-bottom: 8px;">Killer Leads & Par Breakers</h2>
+                        <div style="font-size: 1.15rem; color: #cbd5e1;">
+                            ${items}
+                        </div>
+                    </div>`;
+            }
+
+            // Efficiency Analysis
+            let effHtml = '';
+            const effStats = analyzeEfficiency(boards, pairNames).slice(0, 5); // Top 5
+
+            if (effStats.length > 0) {
+                const rows = effStats.map((s, i) => `
+                        <tr style="border-bottom: 1px solid #334155;">
+                            <td style="padding: 8px;">${i + 1}. ${s.name}</td>
+                            <td style="padding: 8px; text-align: right;">${s.avgDiff > 0 ? '+' : ''}${s.avgDiff}</td>
+                            <td style="padding: 8px; text-align: right;">${s.count}</td>
+                        </tr>
+                     `).join('');
+
+                effHtml = `
+                     <div style="margin-bottom: 32px;">
+                        <h2 style="color: #fbbf24; font-size: 1.5rem; border-bottom: 1px solid #334155; padding-bottom: 8px;">HCP Efficiency (Performance vs Par)</h2>
+                        <p style="font-size: 1rem; color: #94a3b8; margin-bottom: 10px;">Average tricks won above/below Double Dummy expectations per hand.</p>
+                        <table style="width: 100%; border-collapse: collapse; font-size: 1.1rem; color: #cbd5e1;">
+                            <thead>
+                                <tr style="text-align: left; color: #fbbf24;">
+                                    <th style="padding: 8px;">Pair</th>
+                                    <th style="padding: 8px; text-align: right;">Avg Diff</th>
+                                    <th style="padding: 8px; text-align: right;">Bds</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${rows}
+                            </tbody>
+                        </table>
+                     </div>`;
+            }
+
+            return killerHtml + effHtml;
+        })()}
+
+            <div style="margin-bottom: 32px;">
+                <h2 style="color: #fbbf24; font-size: 1.5rem; border-bottom: 1px solid #334155; padding-bottom: 8px;">Where the choice of contract made a difference</h2>
+                <p style="font-size: 1.15rem; color: #cbd5e1;">
+                    - ${contractChoiceText}
+                </p>
+            </div>
+
             <div style="margin-bottom: 32px;">
                 <h2 style="color: #fbbf24; font-size: 1.5rem; border-bottom: 1px solid #334155; padding-bottom: 8px;">Individual Tops</h2>
                 <p style="font-size: 1.15rem; color: #cbd5e1;">
@@ -273,9 +716,23 @@ export function generateNewsletter(data) {
                 </p>
             </div>
 
+            <div style="margin-top: 60px; padding-top: 20px; border-top: 1px solid #334155; color: #94a3b8; font-size: 0.95rem;">
+                <h3 style="color: #fbbf24; margin-bottom: 10px;">Glossary: What does all this mean?</h3>
+                <p style="margin-bottom: 10px;">
+                    <strong>Double Dummy:</strong> The computer plays the hand as if everyone can see everyone else's cards. It never guesses and never takes a finesse that won't work. It's bridge played with the lights on.
+                </p>
+                <p style="margin-bottom: 10px;">
+                    <strong>Killer Leads & Par Breakers:</strong> "Par" is the computer's prediction of perfect play. A Par Breaker is when a human proves the computer wrong—either by making the "impossible" or finding the one Killer Lead that sinks a "sure thing."
+                </p>
+                <p style="margin-bottom: 10px;">
+                    <strong>HCP Efficiency:</strong> This measures what you actually did with your cards (Performance vs Par). A <strong>Positive (+) Diff</strong> means you're squeezing blood from a stone (winning more tricks than theory says you should). A <strong>Negative (-) Diff</strong> means you likely left a few tricks on the table as a charitable donation.
+                </p>
+                <p>
+                    <strong>Avg Diff:</strong> The average number of tricks gained or lost per hand against the "perfect" baseline.
+                </p>
+            </div>
+
 
         </div>
     `;
 }
-
-

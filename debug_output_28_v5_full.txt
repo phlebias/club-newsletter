@@ -1,0 +1,33 @@
+Testing scraper for 2026-01-28...
+Navigating to home page...
+[DEBUG] Saved screenshot and HTML: debug_1_home_page.png, debug_1_home_page.html
+Extracting events from home page...
+Found 7 events on home page
+Found 2 events matching date 20260128
+Looking for Evening session, found: 28th January 2026
+
+Wednesday Evening
+Scorer: Liverpool Bridge Club
+Selected Event: 28th January 2026
+
+Wednesday Evening
+Scorer: Liverpool Bridge Club (20260128_2)
+Clicked event, waiting for navigation...
+Scraping rankings from: https://www.bridgewebs.com/cgi-bin/bwor/bw.cgi?club=liverpool&pid=display_rank&event=20260128_2
+[DEBUG] Saved screenshot and HTML: debug_2_rankings_page.png, debug_2_rankings_page.html
+=== Proceeding with detailed data extraction ===
+Current Event Context: 28th January 2026
+
+Wednesday Evening
+Scorer: Liverpool Bridge Club (20260128_2)
+Step 3: Checking for classic edition switch...
+Scraping error: Error: Attempted to use detached Frame '5400A6484E5CAF9C2D95DAE352FB8CB1'.
+    at CdpFrame.<anonymous> (file:///Users/billburrows/club-newsletter/node_modules/puppeteer-core/lib/esm/puppeteer/util/decorators.js:99:23)
+    at CdpPage.evaluate (file:///Users/billburrows/club-newsletter/node_modules/puppeteer-core/lib/esm/puppeteer/api/Page.js:822:43)
+    at getSessionData (file:///Users/billburrows/club-newsletter/scraper.js:560:44)
+    at async test (file:///Users/billburrows/club-newsletter/debug_scraper_28.js:9:22)
+Scraper error: Error: Attempted to use detached Frame '5400A6484E5CAF9C2D95DAE352FB8CB1'.
+    at CdpFrame.<anonymous> (file:///Users/billburrows/club-newsletter/node_modules/puppeteer-core/lib/esm/puppeteer/util/decorators.js:99:23)
+    at CdpPage.evaluate (file:///Users/billburrows/club-newsletter/node_modules/puppeteer-core/lib/esm/puppeteer/api/Page.js:822:43)
+    at getSessionData (file:///Users/billburrows/club-newsletter/scraper.js:560:44)
+    at async test (file:///Users/billburrows/club-newsletter/debug_scraper_28.js:9:22)

@@ -3,6 +3,7 @@ import fs from 'fs';
 import path from 'path';
 import { getSessionData } from './scraper.js';
 import { generateNewsletter } from './src/generator.js';
+import { postNewsletter } from './src/poster.js';
 
 /**
  * Automation script for Bridge Newsletter.
@@ -62,6 +63,23 @@ async function runAuto() {
 
         console.log(`[Auto] Success! Report saved to ${filePath}`);
         console.log(`[Auto] Updated latest.html`);
+
+        // NEW: Post to Website
+        try {
+            console.log("[Auto] Posting to BridgeWebs...");
+            // Fixed summary text as requested
+            const summaryText = "A Session report for the previous day is now available (except Monday Afternoon)<br>Click to see the report";
+
+            await postNewsletter(
+                summaryText,
+                html
+            );
+            console.log("[Auto] Posted to website successfully.");
+        } catch (postErr) {
+            console.error(`[Auto] Failed to post to website: ${postErr.message}`);
+            // We don't exit(1) because the report generation was successful locally.
+        }
+
     } catch (err) {
         if (err.name === 'NoResultsError') {
             console.log(`[Auto] Graceful Handling: ${err.message}`);

@@ -1,0 +1,83 @@
+Testing scraper for 2026-01-28...
+Navigating to home page...
+[DEBUG] Saved screenshot and HTML: debug_1_home_page.png, debug_1_home_page.html
+Extracting events from home page...
+Found 7 events on home page
+Found 2 events matching date 20260128
+Looking for Evening session, found: 28th January 2026
+
+Wednesday Evening
+Scorer: Liverpool Bridge Club
+Selected Event: 28th January 2026
+
+Wednesday Evening
+Scorer: Liverpool Bridge Club (20260128_2)
+Clicked event, waiting for navigation...
+Scraping rankings from: https://www.bridgewebs.com/cgi-bin/bwor/bw.cgi?club=liverpool&pid=display_rank&event=20260128_2
+[DEBUG] Saved screenshot and HTML: debug_2_rankings_page.png, debug_2_rankings_page.html
+=== Proceeding with detailed data extraction ===
+Current Event Context: 28th January 2026
+
+Wednesday Evening
+Scorer: Liverpool Bridge Club (20260128_2)
+Step 3: Checking for classic edition switch...
+Classic switch result: {"success":true,"text":"Want to play Bridge?\nWe will teach you!\nResults\n\n29th January 2026\n\nThursday Afternoon\nScorer: Liverpool Bridge Club\n\n\n28th January 2026\n\nWednesday Evening\nScorer: Liverpool Bridge Club\n\n\n27th January 2026\n\nTuesday Afternoon\nScorer: Liverpool Bridge Club\n\n\n26th January 2026\n\nMonday Afternoon\nScorer: Liverpool Bridge Club\n\n\n26th January 2026\n\nMonday Evening\nScorer: Liverpool Bridge Club\nHome Page\nResults\nResults Calendar\nPlay It Again\nCalendar\nCalendar\nCalendar Month\nSession Times\nTeaching\nCompetitions\nCompetition Rules\nChurney Cup (2026)\nChurney Cup (2025)\nIvy Blackwell V Cup (2025)\nIvy Blackwell V Cup (2026)\nIvy Blackwell T T cup (2025\nIvy Blackwell T T cup (2026)\nReg Pearson Trophy (2026)\nReg Pearson Trophy (2025)\nVictory Cup (2025)\nVictory Cup (2026)\nKen Ap-Thomas Cup (2025)\nKen Ap-Thomas Cup 2026\nInformation\nWhere & When\nHow to Find Us\nContact Us\nCommittee\nPersonal Analysis\nFees\nUseful Links\nMembers Area How To Guide\nMembership\nMember Area\nLIVB 2025 accounts.pdf\nAcolpool-password\nEBU Info\nEBU News\nEBU Law Change 2017\nBest Behaviour\nEBU Announcing Rules\nAdministration\nResults Administration\nWeb Administration\nSite Statistics\nBridgeWebs\nBridgeWebs News\nIndex of Clubs\n \nBulletin\n\n \n\nNew! Members Area Guide\n\nThe Members Area of our website lets you view your personal results, find partners, and keep in touch with other members.\nA new page now explains how to use it and how you can help make it more active.\n\n👉 See “Members Area Guide” in the menu for details.\n\n \n\n \n\n          \n\nResults Options\n \n    Show Names in Travellers\n    Show Card Analysis Hover, H.C.P etc\n1\n2\n3\n    Show Columns on Traveller\n1\n2\n3\n4\n    Print Rows on Traveller\nSwitch to 2022 Edition\n\n28th January 2026 - Wednesday Evening\n\nRanking\tScorecards\tMatrix\tTravellers\tHands\n\n\n\t\t\nPos\tNo\tPlayers\tMatch\nPoints\tScore\n%\tMaster\nPoints\n1\t9\t\nLoretta Goldsmith & Michael Taxman\n\t154\t64.17\t24\n2\t6\t\nJames Jones & Aidan Prescott\n\t147\t61.25\t18\n3\t11\t\nLianne French & Sven Eriksen\n\t128\t53.33\t12\n4\t5\t\nRay Gibson & Krystyna Eitner\n\t126\t52.50\t6\n5\t10\t\nAlan Bornat & Nicky Crosby\n\t125\t52.08\t \n6\t7\t\nSally Nicholls & Miranda Threlfall-Holmes\n\t124\t51.67\t \n7\t4\t\nNigel Smith & Patrick King\n\t123\t51.25\t \n8\t8\t\nIrene Ashcroft & Penny Roberts\n\t121\t50.42\t \n9\t2\t\nGabriel McCarthy & Bill Burrows\n\t115\t47.92\t \n10=\t3\t\nDuncan Ferguson & Harriette Goldsmith\n\t105\t43.75\t \n10=\t12\t\nBeryl Webster & Ann Davies\n\t105\t43.75\t \n12\t1\t\nSandie Mitchell & Kieron McPartland\n\t67\t27.92\t \n\n\nScorer\t:\tLiverpool Bridge Club\nScoring Software\t:\tScoreBridge\nResults Session\t:\t12363\nResults Filename\t:\t2026Jan29!Wednesday_Evening!.dat\nXML Filename\t:\t2026Jan29!Wednesday_Evening!.xml\nUploaded\t:\t29th Jan 2026 11:42 GMT\n\t\nThis site is built with BridgeWebs, the easy web solution."}
+Switched to classic edition, waiting for reload...
+[DEBUG] Saved screenshot and HTML: debug_3_after_classic_switch.png, debug_3_after_classic_switch.html
+Step 3.5: Extracting rankings (post-Classic check)...
+BROWSER LOG: [TABLE DEBUG] Table 18 ACCEPTED: Rows=13
+BROWSER LOG: Potential ranking tables found (strict): 1
+BROWSER LOG: [RANKING DEBUG] Table 0 () has 13 rows
+Found 12 pairs in rankings (Step 3.5)
+Step 4: Looking for Travellers tab...
+BROWSER LOG: Found Travellers tab div, clicking...
+Travellers tab result: {"success":true,"type":"clicked"}
+Clicked Travellers tab, waiting for content to load...
+Timeout waiting for traveller content, but proceeding anyway...
+[DEBUG] Saved screenshot and HTML: debug_4_travellers_tab_checked.png, debug_4_travellers_tab_checked.html
+Travellers tab loaded, proceeding directly to traveller data extraction...
+Step 5: Skipping Travellers tab click - already clicked in Step 4
+Debug: Found 17 tables on traveller page
+Debug: URL: https://www.bridgewebs.com/cgi-bin/bwor/bw.cgi?club=liverpool&pid=display_rank&event=20260128_2
+Debug: Has board text in page: false
+Debug: Page text preview: Want to play Bridge?
+We will teach you!
+             
+
+Results Options
+ 
+    Show Names in Travellers
+    Show Card Analysis Hover, H.C.P etc
+1
+2
+3
+    Show Columns on Traveller
+1
+2
+3
+4
+    Print Rows on Traveller
+Switch to 2022 Edition
+
+28th January 2026 - Wednesday Evening
+
+Ranking	Scorecards	Matr
+Debug: Found 0 tables that look like travellers
+[DEBUG] Saved screenshot and HTML: debug_5_before_parse_boards.png, debug_5_before_parse_boards.html
+Warning: No board results found on traveller page. Will attempt fallback to scorecards/PBN.
+Found 0 boards with results
+No boards found with standard parsing, trying alternative methods...
+BROWSER LOG: Found 0 board mentions in page text
+Page structure debug: {
+  "url": "https://www.bridgewebs.com/cgi-bin/bwor/bw.cgi?club=liverpool&pid=display_rank&event=20260128_2",
+  "title": "Liverpool Bridge Club, Liverpool",
+  "bodyTextLength": 385,
+  "tableCount": 17,
+  "hasIframes": false,
+  "sampleText": "Want to play Bridge?\nWe will teach you!\n             \n\nResults Options\n \n    Show Names in Travellers\n    Show Card Analysis Hover, H.C.P etc\n1\n2\n3\n    Show Columns on Traveller\n1\n2\n3\n4\n    Print Rows on Traveller\nSwitch to 2022 Edition\n\n28th January 2026 - Wednesday Evening\n\nRanking\tScorecards\tMatrix\tTravellers\tHands\n\n\n\t\t\n\t\nThis site is built with BridgeWebs, the easy web solution."
+}
+Fetching PBN for hand diagrams...
+No traveller/scorecard results found. Creating boards from PBN data only.
+Scrape complete.
+Rankings found: 12
+Boards found: 24
