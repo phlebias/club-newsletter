@@ -40,8 +40,45 @@ if [ ! -d "node_modules" ]; then
     npm install >> automation.log 2>&1
 fi
 
+# Check for Chrome/Chromium executable
+if [ -z "$PUPPETEER_EXECUTABLE_PATH" ]; then
+    # Common paths for Mac and Linux
+    PATHS=(
+        "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+        "/usr/bin/chromium"
+        "/usr/bin/chromium-browser"
+        "/usr/bin/google-chrome"
+        "/usr/bin/google-chrome-stable"
+        "/snap/bin/chromium"
+    )
+
+    for path in "${PATHS[@]}"; do
+        if [ -f "$path" ] || [ -L "$path" ]; then
+            export PUPPETEER_EXECUTABLE_PATH="$path"
+            echo "Found Chrome at $path" | tee -a automation.log
+            break
+        fi
+    done
+fi
+
+# Fallback: try `which` commands if nothing found in known paths
+if [ -z "$PUPPETEER_EXECUTABLE_PATH" ]; then
+    if which chromium &> /dev/null; then
+        export PUPPETEER_EXECUTABLE_PATH=$(which chromium)
+    elif which chromium-browser &> /dev/null; then
+        export PUPPETEER_EXECUTABLE_PATH=$(which chromium-browser)
+    elif which google-chrome &> /dev/null; then
+        export PUPPETEER_EXECUTABLE_PATH=$(which google-chrome)
+    fi
+fi
+
+if [ -n "$PUPPETEER_EXECUTABLE_PATH" ]; then
+    echo "PUPPETEER_EXECUTABLE_PATH is set to $PUPPETEER_EXECUTABLE_PATH" | tee -a automation.log
+fi
+
 # Run the node script
 export HEADLESS=true
-node automate.js >> automation.log 2>&1
+echo "Starting automate.js..." | tee -a automation.log
+node automate.js 2>&1 | tee -a automation.log
 
-echo "Finished automation run at $(date)" >> automation.log
+echo "Finished automation run at $(date)" | tee -a automation.log

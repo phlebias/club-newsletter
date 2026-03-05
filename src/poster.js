@@ -1,8 +1,8 @@
 
 import puppeteer from 'puppeteer';
 
-const CLUB_ID = 'liverpool';
-const ADMIN_PASSWORD = 'Trump7!';
+const CLUB_ID = process.env.CLUB_ID || 'liverpool';
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD;
 const NEWS_ITEM_TITLE = 'Match Report';
 
 export async function postNewsletter(summaryText, detailsHtml) {
