@@ -1,4 +1,5 @@
 
+import "dotenv/config";
 import { getSessionData } from './scraper.js';
 import fs from 'fs';
 

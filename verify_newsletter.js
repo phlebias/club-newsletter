@@ -1,4 +1,5 @@
 
+import "dotenv/config";
 import { generateNewsletter } from './src/generator.js';
 import fs from 'fs';
 

@@ -1,6 +1,7 @@
+import "dotenv/config";
 import puppeteer from "puppeteer";
 
-const CLUB_ID = "liverpool";
+const CLUB_ID = process.env.CLUB_ID || "liverpool";
 const EVENT_ID = "20260129_1";
 
 async function analyzeTravellersData() {

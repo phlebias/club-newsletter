@@ -5,7 +5,10 @@ dist
 debug_*.png
 debug_*.html
 debug_*.txt
+**/debug_*.js
 test_output.txt
 .env
 latest_session_data.json
 automation.log
+test_reports/
+verification_newsletter.html
