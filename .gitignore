@@ -1,0 +1,14 @@
+node_modules
+dist
+.DS_Store
+*.log
+debug_*.png
+debug_*.html
+test_output.txt
+.env
+serviceAccountKey.json
+.agent/
+reports/latest.html
+reports/latest_simulated.html
+status/*.txt
+._*
