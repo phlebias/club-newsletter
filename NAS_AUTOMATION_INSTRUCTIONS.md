@@ -49,3 +49,18 @@ To test right now without waiting for 3 AM:
 1. Open Terminal.
 2. Run: `./run_newsletter_nas.sh`
 3. Check the `automation.log` file created in the same folder for results.
+
+## 6. Shadow Rollout Mode
+
+The automation now defaults to publishing the recover shadow report with automatic fallback to the legacy report if shadow generation fails.
+
+- Default behaviour when recover shadow is enabled: `primary_fallback`
+- Legacy snapshot is still written alongside the published file
+- You can still override the mode explicitly with `SHADOW_ROLLOUT_MODE`
+
+Useful values:
+
+- `legacy`: publish only the old report
+- `compare`: generate shadow alongside legacy, but still publish legacy
+- `primary_fallback`: publish shadow, but fall back to legacy if needed
+- `primary`: publish shadow only and fail the run if shadow fails

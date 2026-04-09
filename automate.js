@@ -5,6 +5,22 @@ import { getSessionData } from './scraper.js';
 import { generateNewsletter } from './src/generator.js';
 import { postNewsletter } from './src/poster.js';
 import { saveReport } from './src/firestore.js';
+import { generateRecoverShadowReport, shouldRunRecoverShadow } from './experiments/admin-export/src/shadow.js';
+
+const SHADOW_ROLLOUT_MODES = new Set(['legacy', 'compare', 'primary', 'primary_fallback']);
+
+function resolveShadowRolloutMode() {
+    const configuredMode = String(process.env.SHADOW_ROLLOUT_MODE || '').trim().toLowerCase();
+    if (SHADOW_ROLLOUT_MODES.has(configuredMode)) {
+        return configuredMode;
+    }
+
+    return shouldRunRecoverShadow() ? 'primary_fallback' : 'legacy';
+}
+
+function readHtmlFile(filePath) {
+    return fs.readFileSync(filePath, 'utf8');
+}
 
 /**
  * Automation script for Bridge Newsletter.
@@ -50,12 +66,14 @@ async function runAuto() {
     const month = String(targetDateObj.getMonth() + 1).padStart(2, '0');
     const date = String(targetDateObj.getDate()).padStart(2, '0');
     const sessionDateString = `${year}${month}${date}`;
+    const shadowMode = resolveShadowRolloutMode();
 
     console.log(`[Auto] Running for ${sessionDateString} (${targetType})`);
+    console.log(`[Auto] Shadow rollout mode: ${shadowMode}`);
 
     try {
         const data = await getSessionData(sessionDateString, targetType);
-        const html = generateNewsletter(data);
+        const legacyHtml = generateNewsletter(data);
 
         const NAS_DIR = process.env.REPORT_DIR || './reports';
         if (!fs.existsSync(NAS_DIR)) {
@@ -65,11 +83,49 @@ async function runAuto() {
         const filename = `newsletter_${sessionDateString}_${targetType.toLowerCase()}.html`;
         const filePath = path.join(NAS_DIR, filename);
         const latestPath = path.join(NAS_DIR, 'latest.html');
+        const legacyPath = path.join(NAS_DIR, `newsletter_${sessionDateString}_${targetType.toLowerCase()}_legacy.html`);
 
-        fs.writeFileSync(filePath, html);
-        fs.writeFileSync(latestPath, html);
+        let chosenHtml = legacyHtml;
+        let chosenSource = 'legacy';
+        let shadowResult = null;
 
-        console.log(`[Auto] Success! Report saved to ${filePath}`);
+        const shouldAttemptShadow = shadowMode !== 'legacy';
+        if (shouldAttemptShadow) {
+            try {
+                console.log(`[Auto] Starting recover shadow report for ${data.eventInfo.eventId}...`);
+                shadowResult = await generateRecoverShadowReport({
+                    eventId: data.eventInfo.eventId,
+                    sessionDateString,
+                    targetType,
+                    reportDir: NAS_DIR,
+                });
+                console.log(`[Auto] Recover shadow report saved to ${shadowResult.outPath}`);
+                console.log(`[Auto] Shadow compare: legacy=${filename}, shadow=${path.relative(NAS_DIR, shadowResult.outPath)}`);
+
+                if (shadowMode === 'primary' || shadowMode === 'primary_fallback') {
+                    chosenHtml = readHtmlFile(shadowResult.outPath);
+                    chosenSource = 'recover_shadow';
+                }
+            } catch (shadowErr) {
+                if (shadowMode === 'primary') {
+                    throw new Error(`Shadow rollout mode 'primary' failed: ${shadowErr.message}`);
+                }
+
+                console.warn(`[Auto] Recover shadow warning: ${shadowErr.message}`);
+                if (shadowMode === 'primary_fallback') {
+                    console.warn(`[Auto] Falling back to legacy newsletter output.`);
+                }
+            }
+        } else {
+            console.log(`[Auto] Shadow rollout disabled; publishing legacy report only.`);
+        }
+
+        fs.writeFileSync(legacyPath, legacyHtml);
+        fs.writeFileSync(filePath, chosenHtml);
+        fs.writeFileSync(latestPath, chosenHtml);
+
+        console.log(`[Auto] Success! Report saved to ${filePath} using ${chosenSource}.`);
+        console.log(`[Auto] Legacy snapshot saved to ${legacyPath}`);
         console.log(`[Auto] Updated latest.html`);
 
         // Save to Firestore for Rolling 5
@@ -78,7 +134,8 @@ async function runAuto() {
                 ...data,
                 sessionDate: sessionDateString,
                 targetType: targetType,
-                html: html
+                html: chosenHtml,
+                reportSource: chosenSource,
             };
             await saveReport(reportData);
         } catch (dbErr) {
@@ -89,7 +146,7 @@ async function runAuto() {
         // Post to BridgeWebs website
         console.log(`[Auto] Posting to BridgeWebs...`);
         const summaryText = `📊 ${data.eventInfo.text} - Match Report`;
-        await postNewsletter(summaryText, html);
+        await postNewsletter(summaryText, chosenHtml);
         console.log(`[Auto] Posted to website successfully.`);
 
     } catch (err) {

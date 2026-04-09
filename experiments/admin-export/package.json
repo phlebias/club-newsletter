@@ -1,0 +1,12 @@
+{
+  "name": "admin-export-prototype",
+  "private": true,
+  "version": "0.0.1",
+  "type": "module",
+  "description": "Standalone prototype for testing BridgeWebs admin export data.",
+  "scripts": {
+    "start": "node src/index.js --capture",
+    "capture": "node src/index.js --capture",
+    "check": "node src/index.js --capture"
+  }
+}

@@ -11,7 +11,7 @@ const DIRECTIONS = ['N', 'S', 'E', 'W']; // PBN Standard Order: North, South, Ea
 export function parseDDTricks(abilityStr) {
     if (!abilityStr || abilityStr.length !== 20) return null;
     const strains = ['NT', 'S', 'H', 'D', 'C'];
-    const positions = ['N', 'E', 'S', 'W']; // PBN DD Order: North (0-4), East (5-9), South (10-14), West (15-19)
+    const positions = ['N', 'S', 'E', 'W']; // PBN DD Order: North, South, East, West
     const result = { N: {}, S: {}, E: {}, W: {} };
 
     positions.forEach((pos, pIdx) => {

@@ -8,6 +8,7 @@ import { analyzeKillerLeads, analyzeEfficiency, parsePbnDeal, renderHandDiagram 
  */
 export function generateNewsletter(data) {
     const { eventInfo, rankings, boards, scorecards = [] } = data;
+    const TIE_MARGIN_EPSILON = 0.005;
 
     // Handle "Results Not Ready" state
     if (!rankings || rankings.length === 0 || !boards || boards.length === 0) {
@@ -68,23 +69,36 @@ export function generateNewsletter(data) {
         // 2-Winner Session
         const topNS = nsRankings[0];
         const secondNS = nsRankings[1];
-        const marginNS = (parseFloat(topNS.score) - parseFloat(secondNS.score)).toFixed(2);
+        const marginNSValue = parseFloat(topNS.score) - parseFloat(secondNS.score);
+        const marginNS = marginNSValue.toFixed(2);
 
         const topEW = ewRankings[0];
         const secondEW = ewRankings[1];
-        const marginEW = (parseFloat(topEW.score) - parseFloat(secondEW.score)).toFixed(2);
+        const marginEWValue = parseFloat(topEW.score) - parseFloat(secondEW.score);
+        const marginEW = marginEWValue.toFixed(2);
+
+        const nsSummary = Math.abs(marginNSValue) < TIE_MARGIN_EPSILON
+            ? `${topNS.players} finished first equal with ${secondNS.players} on ${topNS.score}%.`
+            : `${topNS.players} finished first with ${topNS.score}%, ${parseFloat(marginNS) < 1.0 ? 'edging' : 'beating'} ${secondNS.players} by ${marginNS}%.`;
+
+        const ewSummary = Math.abs(marginEWValue) < TIE_MARGIN_EPSILON
+            ? `${topEW.players} finished first equal with ${secondEW.players} on ${topEW.score}%.`
+            : `${topEW.players} won the field with ${topEW.score}%, ${parseFloat(marginEW) < 1.0 ? 'narrowly ahead of' : 'clear of'} ${secondEW.players} (${secondEW.score}%).`;
 
         winnersText = `
-            <strong>North/South:</strong> ${topNS.players} finished first with ${topNS.score}%, ${parseFloat(marginNS) < 1.0 ? 'edging' : 'beating'} ${secondNS.players} by ${marginNS}%.<br>
-            <strong>East/West:</strong> ${topEW.players} won the field with ${topEW.score}%, ${parseFloat(marginEW) < 1.0 ? 'narrowly ahead of' : 'clear of'} ${secondEW.players} (${secondEW.score}%).
+            <strong>North/South:</strong> ${nsSummary}<br>
+            <strong>East/West:</strong> ${ewSummary}
         `;
         topPair = topNS; // Set main top pair to NS winner for subsequent analysis defaults
     } else {
         // 1-Winner Session
         topPair = rankings[0];
         secondPair = rankings[1];
-        const margin = (parseFloat(topPair.score) - parseFloat(secondPair.score)).toFixed(2);
-        winnersText = `${topPair.players} finished first with ${topPair.score}%, ${parseFloat(margin) < 1.0 ? 'edging' : 'beating'} ${secondPair.players} by ${margin}%.`;
+        const marginValue = parseFloat(topPair.score) - parseFloat(secondPair.score);
+        const margin = marginValue.toFixed(2);
+        winnersText = Math.abs(marginValue) < TIE_MARGIN_EPSILON
+            ? `${topPair.players} finished first equal with ${secondPair.players} on ${topPair.score}%.`
+            : `${topPair.players} finished first with ${topPair.score}%, ${parseFloat(margin) < 1.0 ? 'edging' : 'beating'} ${secondPair.players} by ${margin}%.`;
     }
 
     // Analyze winning pattern for top pair (primary winner)
